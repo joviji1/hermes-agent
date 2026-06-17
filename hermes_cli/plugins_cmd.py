@@ -627,6 +627,11 @@ def cmd_install(
             f"Run `hermes plugins enable {installed_name}` to activate.[/dim]",
         )
 
+    console.print(
+        "[yellow]Trust boundary:[/yellow] enabling a non-bundled plugin loads trusted host code inside the Hermes process. "
+        "`plugins.enabled` is a load gate, not a sandbox."
+    )
+
     console.print("[dim]Restart the gateway for the plugin to take effect:[/dim]")
     console.print("[dim]  hermes gateway restart[/dim]")
     console.print()

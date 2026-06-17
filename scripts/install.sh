@@ -1381,6 +1381,12 @@ install_deps() {
 
     # Install the main package in editable mode with all extras.
     #
+    # Residual hardening note (INSTALL-FALLBACK-001): falling back from a
+    # hash-verified `uv sync --locked` install to an unlocked PyPI re-resolve is
+    # an UNSAFE posture change, not a routine resilience feature. By default we
+    # now hard-fail at that boundary. Operators who consciously want the older
+    # behavior must opt in with HERMES_ALLOW_UNSAFE_INSTALL_FALLBACK=1.
+    #
     # Hash-verified install (Tier 0) — when uv.lock is present, prefer
     # `uv sync --locked`. The lockfile records SHA256 hashes for every
     # transitive, so a compromised transitive (different hash than what
@@ -1421,9 +1427,23 @@ install_deps() {
             log_success "All dependencies installed"
             return 0
         fi
-        log_warn "uv.lock sync failed (see uv output above), falling back to PyPI resolve..."
+        if [ "${HERMES_ALLOW_UNSAFE_INSTALL_FALLBACK:-0}" != "1" ]; then
+            log_error "uv.lock sync failed; refusing unlocked PyPI fallback by default."
+            log_info "Hermes now hard-fails here because falling back to an unlocked resolve leaves the curated, hash-verified dependency set."
+            log_info "If you intentionally want the old behavior, re-run with: HERMES_ALLOW_UNSAFE_INSTALL_FALLBACK=1"
+            log_info "Unsafe fallback is a break-glass path: transitives are re-resolved from PyPI without the uv.lock hash set."
+            exit 1
+        fi
+        log_warn "uv.lock sync failed (see uv output above); HERMES_ALLOW_UNSAFE_INSTALL_FALLBACK=1 set, continuing with unlocked PyPI resolve..."
     else
-        log_info "uv.lock not found — falling back to PyPI resolve (no hash verification)"
+        if [ "${HERMES_ALLOW_UNSAFE_INSTALL_FALLBACK:-0}" != "1" ]; then
+            log_error "uv.lock not found; refusing unlocked PyPI fallback by default."
+            log_info "Hermes now hard-fails here because unlocked fallback leaves the curated, hash-verified dependency set."
+            log_info "If you intentionally want the old behavior, re-run with: HERMES_ALLOW_UNSAFE_INSTALL_FALLBACK=1"
+            log_info "Unsafe fallback is a break-glass path and may install transitives that were not covered by the shipped uv.lock hashes."
+            exit 1
+        fi
+        log_warn "uv.lock not found; HERMES_ALLOW_UNSAFE_INSTALL_FALLBACK=1 set, continuing with unlocked PyPI resolve (no hash verification)"
     fi
 
     # Multi-tier fallback. The point of the tiers is that ONE compromised

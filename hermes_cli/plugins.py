@@ -90,6 +90,7 @@ _PLUGINS_DEBUG = os.getenv("HERMES_PLUGINS_DEBUG", "").strip().lower() in {
     "1", "true", "yes", "on",
 }
 _DEBUG_HANDLER_INSTALLED = False
+_TRUST_BOUNDARY_WARNING_EMITTED = False
 
 
 def _install_plugin_debug_handler(force: bool = False) -> None:
@@ -120,6 +121,29 @@ def _install_plugin_debug_handler(force: bool = False) -> None:
 
 
 _install_plugin_debug_handler()
+
+
+def _emit_plugin_trust_boundary_warning_once(source: str) -> None:
+    """Emit a one-shot stderr warning for non-bundled plugin code.
+
+    ``plugins.enabled`` / ``HERMES_ENABLE_PROJECT_PLUGINS`` are load gates,
+    not sandboxes. Once a user/project/entrypoint plugin is loaded, it runs as
+    trusted host code inside the Hermes process.
+    """
+    global _TRUST_BOUNDARY_WARNING_EMITTED
+    if _TRUST_BOUNDARY_WARNING_EMITTED:
+        return
+    if source not in {"user", "project", "entrypoint"}:
+        return
+    try:
+        sys.stderr.write(
+            "WARNING: Hermes plugin trust boundary — enabled non-bundled plugins are trusted host code, not sandboxed extensions. "
+            "`plugins.enabled` and `HERMES_ENABLE_PROJECT_PLUGINS` only control whether code loads.\n"
+        )
+        sys.stderr.flush()
+    except (BrokenPipeError, OSError):
+        pass
+    _TRUST_BOUNDARY_WARNING_EMITTED = True
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -1520,6 +1544,7 @@ class PluginManager:
     def _load_plugin(self, manifest: PluginManifest) -> None:
         """Import a plugin module and call its ``register(ctx)`` function."""
         loaded = LoadedPlugin(manifest=manifest)
+        _emit_plugin_trust_boundary_warning_once(manifest.source)
         logger.debug(
             "Loading plugin '%s' (source=%s, kind=%s, path=%s)",
             manifest.key or manifest.name, manifest.source, manifest.kind, manifest.path,

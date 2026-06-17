@@ -7668,21 +7668,27 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             if base_cmd.lstrip("/") in quick_commands:
                 qcmd = quick_commands[base_cmd.lstrip("/")]
                 if qcmd.get("type") == "exec":
+                    import shlex
                     import subprocess
                     exec_cmd = qcmd.get("command", "")
+                    use_shell = bool(qcmd.get("shell", False))
                     if exec_cmd:
                         try:
-                            # shell=True is intentional: quick_commands are user-defined
-                            # shell snippets from config.yaml — not agent/LLM controlled.
+                            run_args = exec_cmd if use_shell else shlex.split(exec_cmd)
                             result = subprocess.run(
-                                exec_cmd, shell=True, capture_output=True,
-                                text=True, timeout=30
+                                run_args,
+                                shell=use_shell,
+                                capture_output=True,
+                                text=True,
+                                timeout=30,
                             )
                             output = result.stdout.strip() or result.stderr.strip()
                             if output:
                                 self._console_print(_rich_text_from_ansi(output))
                             else:
                                 self._console_print("[dim]Command returned no output[/]")
+                        except ValueError as e:
+                            self._console_print(f"[bold red]Quick command parse error: {e}[/]")
                         except subprocess.TimeoutExpired:
                             self._console_print("[bold red]Quick command timed out (30s)[/]")
                         except Exception as e:

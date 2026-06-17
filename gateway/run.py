@@ -7748,7 +7748,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             if command in quick_commands:
                 qcmd = quick_commands[command]
                 if qcmd.get("type") == "exec":
+                    import shlex
                     exec_cmd = qcmd.get("command", "")
+                    use_shell = bool(qcmd.get("shell", False))
                     if exec_cmd:
                         try:
                             # Sanitize env to prevent credential leakage —
@@ -7756,12 +7758,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                             # has all API keys in os.environ.
                             from tools.environments.local import _sanitize_subprocess_env
                             sanitized_env = _sanitize_subprocess_env(os.environ.copy())
-                            proc = await asyncio.create_subprocess_shell(
-                                exec_cmd,
-                                stdout=asyncio.subprocess.PIPE,
-                                stderr=asyncio.subprocess.PIPE,
-                                env=sanitized_env,
-                            )
+                            if use_shell:
+                                proc = await asyncio.create_subprocess_shell(
+                                    exec_cmd,
+                                    stdout=asyncio.subprocess.PIPE,
+                                    stderr=asyncio.subprocess.PIPE,
+                                    env=sanitized_env,
+                                )
+                            else:
+                                argv = shlex.split(exec_cmd)
+                                proc = await asyncio.create_subprocess_exec(
+                                    *argv,
+                                    stdout=asyncio.subprocess.PIPE,
+                                    stderr=asyncio.subprocess.PIPE,
+                                    env=sanitized_env,
+                                )
                             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
                             output = (stdout or stderr).decode().strip()
                             # Redact any remaining sensitive patterns in output
@@ -7769,6 +7780,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                                 from agent.redact import redact_sensitive_text
                                 output = redact_sensitive_text(output)
                             return output if output else "Command returned no output."
+                        except ValueError as e:
+                            return f"Quick command parse error: {e}"
                         except asyncio.TimeoutError:
                             return "Quick command timed out (30s)."
                         except Exception as e:
